@@ -74,9 +74,9 @@ def linkedin_callback(request):
     data = {
         'grant_type': 'authorization_code',
         'code': code,
-        'redirect_uri': "http://localhost:8000/linkedin/callback/",
-        'client_id': "77vq9pe1xxvd5y",
-        'client_secret': "WPL_AP1.quxMuaLLXyPZMz1I.9ll2mw==",
+        'redirect_uri': settings.LINKEDIN_REDIRECT_URI,
+        'client_id': settings.LINKEDIN_CLIENT_ID,
+        'client_secret': settings.LINKEDIN_CLIENT_SECRET,
     }
     response = requests.post(token_url, data=data)
     access_token = response.json().get("access_token")
@@ -327,6 +327,25 @@ def github_callback(request):
     return redirect('/')
 ```
 
+---
+```
+urlpatterns = [
+    # LinkedIn
+    path('linkedin/login/', views.linkedin_login, name='linkedin_login'),
+    path('linkedin/callback/', views.linkedin_callback, name='linkedin_callback'),
+
+    # Google
+    path('google/login/', views.google_login, name='google_login'),
+    path('google/callback/', views.google_callback, name='google_callback'),
+
+    # Facebook
+    path('facebook/login/', views.facebook_login, name='facebook_login'),
+    path('facebook/callback/', views.facebook_callback, name='facebook_callback'),
+
+    # GitHub
+    path('github/login/', views.github_login, name='github_login'),
+    path('github/callback/', views.github_callback, name='github_callback'),
+```  
 ---
 
 ## 🖼️ Template Login Buttons
