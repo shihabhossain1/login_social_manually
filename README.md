@@ -52,48 +52,70 @@ from django.contrib.auth import login
 from django.contrib.auth.models import User
 
 def linkedin_login(request):
+    linkedin_auth_url = "https://www.linkedin.com/oauth/v2/authorization"
+    redirect_uri = settings.LINKEDIN_REDIRECT_URI
+    client_id = settings.LINKEDIN_CLIENT_ID
+    scope = "r_liteprofile r_emailaddress"
+
     auth_url = (
-        'https://www.linkedin.com/oauth/v2/authorization'
-        f'?response_type=code&client_id={settings.LINKEDIN_CLIENT_ID}'
-        f'&redirect_uri={settings.LINKEDIN_REDIRECT_URI}'
-        f'&scope=r_liteprofile r_emailaddress'
+        f"{linkedin_auth_url}?response_type=code&client_id={client_id}"
+        f"&redirect_uri={redirect_uri}&scope={scope}"
     )
     return redirect(auth_url)
 
+# Step 2: Handle LinkedIn Callback
 def linkedin_callback(request):
     code = request.GET.get('code')
-    token_response = requests.post(
-        'https://www.linkedin.com/oauth/v2/accessToken',
-        data={
-            'grant_type': 'authorization_code',
-            'code': code,
-            'redirect_uri': settings.LINKEDIN_REDIRECT_URI,
-            'client_id': settings.LINKEDIN_CLIENT_ID,
-            'client_secret': settings.LINKEDIN_CLIENT_SECRET,
-        }
-    )
-    access_token = token_response.json().get('access_token')
-    headers = {'Authorization': f'Bearer {access_token}'}
+    if not code:
+        return render(request, 'error.html', {"message": "Authorization failed."})
 
-    profile = requests.get('https://api.linkedin.com/v2/me', headers=headers).json()
-    email_data = requests.get(
+    # Exchange code for access token
+    token_url = "https://www.linkedin.com/oauth/v2/accessToken"
+    data = {
+        'grant_type': 'authorization_code',
+        'code': code,
+        'redirect_uri': "http://localhost:8000/linkedin/callback/",
+        'client_id': "77vq9pe1xxvd5y",
+        'client_secret': "WPL_AP1.quxMuaLLXyPZMz1I.9ll2mw==",
+    }
+    response = requests.post(token_url, data=data)
+    access_token = response.json().get("access_token")
+
+    if not access_token:
+        return render(request, 'error.html', {"message": "Failed to get access token."})
+
+    # Get user's profile
+    headers = {'Authorization': f'Bearer {access_token}'}
+    
+    # Basic profile
+    profile_res = requests.get('https://api.linkedin.com/v2/me', headers=headers)
+    profile = profile_res.json()
+
+    # Email
+    email_res = requests.get(
         'https://api.linkedin.com/v2/emailAddress?q=members&projection=(elements*(handle~))',
         headers=headers
-    ).json()
-
+    )
+    email_data = email_res.json()
     email = email_data['elements'][0]['handle~']['emailAddress']
+
+    # Get or create user
+    linkedin_id = profile.get('id')
     first_name = profile.get('localizedFirstName')
     last_name = profile.get('localizedLastName')
-    linkedin_id = profile.get('id')
 
-    user, created = User.objects.get_or_create(username=linkedin_id, defaults={
-        'first_name': first_name,
-        'last_name': last_name,
-        'email': email,
-        'password': User.objects.make_random_password(),
-    })
+    try:
+        user = User.objects.get(username=linkedin_id)
+    except User.DoesNotExist:
+        user = User.objects.create_user(
+            username=linkedin_id,
+            first_name=first_name,
+            last_name=last_name,
+            email=email,
+            password=User.objects.make_random_password()
+        )
 
-    login(request, user)
+    auth_login(request, user)
     return redirect('/')
 ```
 
@@ -133,44 +155,60 @@ urlpatterns += [
 # views.py
 
 def google_login(request):
+    base_url = "https://accounts.google.com/o/oauth2/v2/auth"
+    redirect_uri = settings.GOOGLE_REDIRECT_URI
+    client_id = settings.GOOGLE_CLIENT_ID
+    scope = "openid email profile"
+    response_type = "code"
+    state = "secureRandomState123"  # optionally generate one and store it in session
+
     auth_url = (
-        'https://accounts.google.com/o/oauth2/v2/auth'
-        f'?response_type=code&client_id={settings.GOOGLE_CLIENT_ID}'
-        f'&redirect_uri={settings.GOOGLE_REDIRECT_URI}'
-        f'&scope=openid email profile&state=secureRandomState'
+        f"{base_url}?response_type={response_type}&client_id={client_id}"
+        f"&redirect_uri={redirect_uri}&scope={scope}&state={state}"
     )
     return redirect(auth_url)
 
+
 def google_callback(request):
     code = request.GET.get('code')
-    token_response = requests.post(
-        'https://oauth2.googleapis.com/token',
-        data={
-            'code': code,
-            'client_id': settings.GOOGLE_CLIENT_ID,
-            'client_secret': settings.GOOGLE_CLIENT_SECRET,
-            'redirect_uri': settings.GOOGLE_REDIRECT_URI,
-            'grant_type': 'authorization_code',
-        }
-    )
-    access_token = token_response.json().get('access_token')
 
-    user_info = requests.get(
-        'https://www.googleapis.com/oauth2/v3/userinfo',
-        headers={'Authorization': f'Bearer {access_token}'}
-    ).json()
+    token_url = 'https://oauth2.googleapis.com/token'
+    data = {
+        'code': code,
+        'client_id': settings.GOOGLE_CLIENT_ID,
+        'client_secret': settings.GOOGLE_CLIENT_SECRET,
+        'redirect_uri': settings.GOOGLE_REDIRECT_URI,
+        'grant_type': 'authorization_code',
+    }
 
+    token_response = requests.post(token_url, data=data)
+    token_data = token_response.json()
+    access_token = token_data.get('access_token')
+    id_token = token_data.get('id_token')
+
+    # Get user info
+    user_info_url = 'https://www.googleapis.com/oauth2/v3/userinfo'
+    headers = {'Authorization': f'Bearer {access_token}'}
+    user_info_response = requests.get(user_info_url, headers=headers)
+    user_info = user_info_response.json()
+
+    # Extract info
     email = user_info.get('email')
     first_name = user_info.get('given_name')
     last_name = user_info.get('family_name')
-    google_id = user_info.get('sub')
+    sub = user_info.get('sub')  # Unique Google ID
 
-    user, created = User.objects.get_or_create(username=google_id, defaults={
-        'first_name': first_name,
-        'last_name': last_name,
-        'email': email,
-        'password': User.objects.make_random_password(),
-    })
+    # Get or create user
+    try:
+        user = User.objects.get(username=sub)
+    except User.DoesNotExist:
+        user = User.objects.create_user(
+            username=sub,
+            first_name=first_name,
+            last_name=last_name,
+            email=email,
+            password=User.objects.make_random_password()
+        )
 
     login(request, user)
     return redirect('/')
