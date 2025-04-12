@@ -1,6 +1,6 @@
-# Manual LinkedIn and Google Login Integration in Django
+# Manual LinkedIn, Google, Facebook, and GitHub Login Integration in Django
 
-This guide shows you how to implement manual OAuth2 login with **LinkedIn** and **Google** in a Django project **without using third-party libraries** like `social-auth-app-django`.
+This guide shows you how to implement manual OAuth2 login with **LinkedIn**, **Google**, **Facebook**, and **GitHub** in a Django project **without using third-party libraries** like `social-auth-app-django`. 
 
 ---
 
@@ -216,16 +216,131 @@ def google_callback(request):
 
 ---
 
+
+## 🟦 Facebook Login (Manual OAuth2)
+
+### Setup Steps
+1. Go to [Meta Developers](https://developers.facebook.com/)
+2. Create a new app → Facebook Login → Web
+3. Set redirect URI: `http://localhost:8000/facebook/callback/`
+4. Add to `settings.py`:
+```python
+FACEBOOK_CLIENT_ID = 'your-client-id'
+FACEBOOK_CLIENT_SECRET = 'your-client-secret'
+FACEBOOK_REDIRECT_URI = 'http://localhost:8000/facebook/callback/'
+```
+
+### Views Example
+```python
+def facebook_login(request):
+    auth_url = (
+        'https://www.facebook.com/v12.0/dialog/oauth'
+        f'?client_id={settings.FACEBOOK_CLIENT_ID}'
+        f'&redirect_uri={settings.FACEBOOK_REDIRECT_URI}'
+        '&scope=email'
+    )
+    return redirect(auth_url)
+
+def facebook_callback(request):
+    code = request.GET.get('code')
+    token_url = f"https://graph.facebook.com/v12.0/oauth/access_token"
+    response = requests.get(token_url, params={
+        'client_id': settings.FACEBOOK_CLIENT_ID,
+        'client_secret': settings.FACEBOOK_CLIENT_SECRET,
+        'redirect_uri': settings.FACEBOOK_REDIRECT_URI,
+        'code': code
+    })
+    access_token = response.json().get('access_token')
+
+    user_info = requests.get(
+        f'https://graph.facebook.com/me?fields=id,name,email&access_token={access_token}'
+    ).json()
+
+    email = user_info.get('email')
+    name = user_info.get('name')
+    facebook_id = user_info.get('id')
+
+    user, created = User.objects.get_or_create(username=facebook_id, defaults={
+        'first_name': name.split()[0],
+        'last_name': name.split()[-1],
+        'email': email,
+        'password': User.objects.make_random_password(),
+    })
+    login(request, user)
+    return redirect('/')
+```
+
+---
+
+## 🐙 GitHub Login (Manual OAuth2)
+
+### Setup Steps
+1. Go to [GitHub Developer Settings](https://github.com/settings/developers)
+2. Create a new OAuth App
+3. Set callback: `http://localhost:8000/github/callback/`
+4. Add to `settings.py`:
+```python
+GITHUB_CLIENT_ID = 'your-client-id'
+GITHUB_CLIENT_SECRET = 'your-client-secret'
+GITHUB_REDIRECT_URI = 'http://localhost:8000/github/callback/'
+```
+
+### Views Example
+```python
+def github_login(request):
+    auth_url = (
+        f'https://github.com/login/oauth/authorize?client_id={settings.GITHUB_CLIENT_ID}'
+        f'&redirect_uri={settings.GITHUB_REDIRECT_URI}&scope=user:email'
+    )
+    return redirect(auth_url)
+
+def github_callback(request):
+    code = request.GET.get('code')
+    token_response = requests.post(
+        'https://github.com/login/oauth/access_token',
+        headers={'Accept': 'application/json'},
+        data={
+            'client_id': settings.GITHUB_CLIENT_ID,
+            'client_secret': settings.GITHUB_CLIENT_SECRET,
+            'code': code,
+            'redirect_uri': settings.GITHUB_REDIRECT_URI
+        }
+    )
+    access_token = token_response.json().get('access_token')
+
+    user_info = requests.get(
+        'https://api.github.com/user',
+        headers={'Authorization': f'token {access_token}'}
+    ).json()
+
+    email = user_info.get('email') or f"{user_info.get('login')}@github.com"
+    github_id = str(user_info.get('id'))
+    name = user_info.get('name') or user_info.get('login')
+
+    user, created = User.objects.get_or_create(username=github_id, defaults={
+        'first_name': name.split()[0],
+        'last_name': name.split()[-1] if len(name.split()) > 1 else '',
+        'email': email,
+        'password': User.objects.make_random_password(),
+    })
+    login(request, user)
+    return redirect('/')
+```
+
+---
+
 ## 🖼️ Template Login Buttons
 ```html
 <a href="{% url 'linkedin_login' %}">Login with LinkedIn</a>
 <a href="{% url 'google_login' %}">Login with Google</a>
+<a href="{% url 'facebook_login' %}">Login with Facebook</a>
+<a href="{% url 'github_login' %}">Login with GitHub</a>
 ```
 
 ---
 
 ## ✅ Done!
-You now have manual OAuth login using LinkedIn and Google integrated into your Django project.
+You now have manual OAuth login using LinkedIn, Google, Facebook, and GitHub integrated into your Django project.
 
 ---
 
@@ -238,4 +353,8 @@ You now have manual OAuth login using LinkedIn and Google integrated into your D
 ---
 
 Happy coding! 🚀
+
+
+
+
 
